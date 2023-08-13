@@ -64,9 +64,10 @@ public class SessionService {
                 .getForObject(fileServiceUrl + "?sessionId=" + sessionId, FileResponse[].class))).toList();
         return new SessionDetailsResponse(
                 session.getId(),
+                session.getSubject().name(),
                 session.getTopic(),
-                session.getStartTime().format(DateTimeFormatter.RFC_1123_DATE_TIME),
-                session.getEndTime().format(DateTimeFormatter.RFC_1123_DATE_TIME),
+                session.getStartTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+                session.getEndTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
                 room,
                 files
         );

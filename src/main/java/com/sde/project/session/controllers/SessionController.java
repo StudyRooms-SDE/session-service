@@ -27,7 +27,7 @@ public class SessionController {
                 .map(e -> new SessionResponse(
                         e.getKey().getId(),
                         e.getValue(),
-                        e.getKey().getTopic(),
+                        e.getKey().getSubject().name(),
                         e.getKey().getStartTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
                         e.getKey().getEndTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)))
                 .toList();
