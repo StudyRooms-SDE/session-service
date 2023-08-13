@@ -8,12 +8,14 @@ import com.sde.project.session.models.tables.Participation;
 import com.sde.project.session.models.tables.Session;
 import com.sde.project.session.repositories.ParticipationRepository;
 import com.sde.project.session.repositories.SessionRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.dao.DataRetrievalFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.File;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 @Service
@@ -21,8 +23,12 @@ public class SessionService {
     private final SessionRepository sessionRepository;
     private final ParticipationRepository participationRepository;
     private final RestTemplate restTemplate;
-    private final String roomServiceUrl = "http://localhost:8082/api/v1/rooms/";
-    private final String fileServiceUrl = "http://localhost:8083/api/v1/files";
+
+    @Value("${service.room.url}")
+    private String roomServiceUrl ;
+
+    @Value("${service.file.url}")
+    private String fileServiceUrl;
 
 
     public SessionService(SessionRepository sessionRepository, ParticipationRepository participationRepository, RestTemplate restTemplate) {
@@ -36,10 +42,10 @@ public class SessionService {
         Map<Session, String> response = participations.stream()
                 .map(p -> {
                     Session session = p.getSession();
-                    String roomName = restTemplate
+                    String roomBuilding = restTemplate
                             .getForObject(roomServiceUrl + session.getRoomId(), RoomResponse.class)
-                            .name();
-            return new HashMap.SimpleEntry<>(session, roomName);
+                            .building();
+            return new HashMap.SimpleEntry<>(session, roomBuilding);
         }).collect(HashMap::new, (m, v) -> m.put(v.getKey(), v.getValue()), HashMap::putAll);
         return response;
     }
@@ -59,8 +65,8 @@ public class SessionService {
         return new SessionDetailsResponse(
                 session.getId(),
                 session.getTopic(),
-                session.getStartTime().toString(),
-                session.getEndTime().toString(),
+                session.getStartTime().format(DateTimeFormatter.RFC_1123_DATE_TIME),
+                session.getEndTime().format(DateTimeFormatter.RFC_1123_DATE_TIME),
                 room,
                 files
         );

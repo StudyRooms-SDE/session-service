@@ -6,6 +6,8 @@ import com.sde.project.session.services.SessionService;
 import org.apache.commons.lang3.NotImplementedException;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
 
@@ -21,13 +23,15 @@ public class SessionController {
 
     @GetMapping(produces = "application/json")
     public List<SessionResponse> getUserSessions(@RequestParam("userId") String userId) {
-        return sessionService.getUserSessions(UUID.fromString(userId)).entrySet().stream()
+        List<SessionResponse> sessions = sessionService.getUserSessions(UUID.fromString(userId)).entrySet().stream()
                 .map(e -> new SessionResponse(
                         e.getKey().getId(),
                         e.getValue(),
-                        e.getKey().getStartTime().toString(),
-                        e.getKey().getEndTime().toString()))
+                        e.getKey().getTopic(),
+                        e.getKey().getStartTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+                        e.getKey().getEndTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)))
                 .toList();
+        return sessions;
     }
 
     @GetMapping(path = "/{sessionId}", produces = "application/json")
