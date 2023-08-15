@@ -37,19 +37,43 @@ public class SessionService {
         this.restTemplate = restTemplate;
     }
 
-    public List<SessionResponse> getSessions(Optional<String> userId) {
+    public List<SessionResponse> getSessions(Optional<String> userId, Optional<String> subject) {
+        List<Session> sessions;
         if (userId.isPresent()) {
-            return getUserSessions(UUID.fromString(userId.get()));
+            sessions = participationRepository.findAllByUser(UUID.fromString(userId.get()))
+                    .stream()
+                    .map(Participation::getSession)
+                    .toList();
+        } else if (subject.isPresent()) {
+            sessions = sessionRepository.findBySubject(Subject.valueOf(subject.get()));
         } else {
-            return sessionRepository.findAll().stream()
-                    .map(s -> new SessionResponse(
+            sessions = sessionRepository.findAll();
+        }
+        return sessions.stream()
+                .map(s -> {
+                    String room = restTemplate.getForObject(roomServiceUrl + "/" + s.getRoomId(), RoomResponse.class).building();
+                    if (userId.isPresent()) {
+                        Optional<Object> createdByUser = participationRepository.findByUserAndSession(UUID.fromString(userId.get()), s)
+                                .map(Participation::getCreated);
+                        return new SessionResponse(
+                                s.getId(),
+                                room,
+                                s.getSubject().name(),
+                                s.getTopic(),
+                                s.getStartTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+                                s.getEndTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+                                createdByUser.isPresent());
+                    }
+                    return new SessionResponse(
                             s.getId(),
+                            room,
                             s.getSubject().name(),
                             s.getTopic(),
                             s.getStartTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
-                            s.getEndTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-                    )).toList();
-        }
+                            s.getEndTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+                            false);
+                })
+                .toList();
     }
 
     public SessionDetailsResponse getSessionDetails(UUID userId, UUID sessionId) {
@@ -60,7 +84,7 @@ public class SessionService {
                 .orElseThrow(() -> new DataRetrievalFailureException("User not participating in this session"));
 
         RoomDetailsResponse room = restTemplate
-                .getForObject(roomServiceUrl + session.getRoomId() + "/details", RoomDetailsResponse.class);
+                .getForObject(roomServiceUrl + "/" + session.getRoomId() + "/details", RoomDetailsResponse.class);
 
         List<FileResponse> files = Arrays.stream(Objects.requireNonNull(restTemplate
                 .getForObject(fileServiceUrl + "?sessionId=" + sessionId, FileResponse[].class))).toList();
@@ -128,10 +152,22 @@ public class SessionService {
                 });
 
         // delete session files as well
-        sessionFiles.forEach(f -> restTemplate.delete(fileServiceUrl + "/"+f.id()));
+        sessionFiles.forEach(f -> restTemplate.delete(fileServiceUrl + "/" + f.id()));
 
     }
 
+    public void leaveSession(UUID userId, UUID sessionId) {
+        Session session = sessionRepository.findById(sessionId).orElseThrow(() -> new DataRetrievalFailureException("Session not found"));
+        participationRepository.findByUserAndSession(userId, session)
+                .ifPresentOrElse(p -> {
+                    if (p.getCreated()) {
+                        throw new IllegalStateException("User is the creator of this session");
+                    }
+                    participationRepository.delete(p);
+                }, () -> {
+                    throw new IllegalStateException("User is not participating in this session");
+                });
+    }
     private Boolean checkRoomAvailable(SessionRequest sessionRequest) {
         sessionRepository.findByRoomId(sessionRequest.roomId())
                 .stream()
@@ -144,7 +180,7 @@ public class SessionService {
     }
 
     private Boolean checkRoomOpen(SessionRequest sessionRequest) {
-        OpeningHoursResponse openingHoursResponse = restTemplate.getForObject(roomServiceUrl + sessionRequest.roomId() + "/opening_hours", OpeningHoursResponse.class);
+        OpeningHoursResponse openingHoursResponse = restTemplate.getForObject(roomServiceUrl + "/" + sessionRequest.roomId() + "/opening_hours", OpeningHoursResponse.class);
         LocalDateTime requestStartTime = LocalDateTime.parse(sessionRequest.startTime());
         LocalDateTime requestEndTime = LocalDateTime.parse(sessionRequest.endTime());
 
@@ -170,18 +206,5 @@ public class SessionService {
                     throw new IllegalStateException("User is already participating in another session at the same time");
                 });
         return true;
-    }
-
-
-    private List<SessionResponse> getUserSessions(UUID userId) {
-        List<Participation> participations = participationRepository.findAllByUser(userId);
-        return participations.stream()
-                .map(p -> new SessionResponse(
-                        p.getSession().getId(),
-                        p.getSession().getSubject().name(),
-                        p.getSession().getTopic(),
-                        p.getSession().getStartTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
-                        p.getSession().getEndTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-                )).toList();
     }
 }

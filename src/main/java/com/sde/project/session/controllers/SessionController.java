@@ -29,8 +29,8 @@ public class SessionController {
 
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.OK)
-    public List<SessionResponse> getSessions(@RequestParam(name="userId") Optional<String> userId){
-        return sessionService.getSessions(userId);
+    public List<SessionResponse> getSessions(@RequestParam(name="userId") Optional<String> userId, @RequestParam Optional<String> subject) {
+        return sessionService.getSessions(userId, subject);
     }
 
     @GetMapping(path = "/{sessionId}", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -51,12 +51,16 @@ public class SessionController {
         sessionService.joinSession(UUID.fromString(userId), UUID.fromString(sessionId));
     }
 
-    //TODO: Endpoint for user to leave a session
-
     @DeleteMapping(path = "/{sessionId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteSession(@RequestParam("userId") String userId, @PathVariable String sessionId) {
         sessionService.deleteSession(UUID.fromString(userId), UUID.fromString(sessionId));
+    }
+
+    @PostMapping(path = "/{sessionId}/leave")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void leaveSession(@RequestParam("userId") String userId, @PathVariable String sessionId) {
+        sessionService.leaveSession(UUID.fromString(userId), UUID.fromString(sessionId));
     }
 
     @GetMapping(path = "/subjects", produces = MediaType.APPLICATION_JSON_VALUE)
