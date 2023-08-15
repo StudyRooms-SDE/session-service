@@ -17,4 +17,7 @@ public interface ParticipationRepository extends JpaRepository<Participation, UU
 
     @Query("SELECT p FROM participation p WHERE p.user = :userId AND p.session = :session")
     Optional<Participation> findByUserAndSession(UUID userId, Session session);
+
+//    @Query("DELETE FROM participation p WHERE p.session = :session")
+    void deleteABySession(Session session);
 }

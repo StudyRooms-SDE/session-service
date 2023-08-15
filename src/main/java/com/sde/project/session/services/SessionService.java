@@ -7,6 +7,7 @@ import com.sde.project.session.models.tables.Session;
 import com.sde.project.session.models.utils.Subject;
 import com.sde.project.session.repositories.ParticipationRepository;
 import com.sde.project.session.repositories.SessionRepository;
+import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DataRetrievalFailureException;
@@ -34,6 +35,21 @@ public class SessionService {
         this.sessionRepository = sessionRepository;
         this.participationRepository = participationRepository;
         this.restTemplate = restTemplate;
+    }
+
+    public List<SessionResponse> getSessions(Optional<String> userId) {
+        if (userId.isPresent()) {
+            return getUserSessions(UUID.fromString(userId.get()));
+        } else {
+            return sessionRepository.findAll().stream()
+                    .map(s -> new SessionResponse(
+                            s.getId(),
+                            s.getSubject().name(),
+                            s.getTopic(),
+                            s.getStartTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+                            s.getEndTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+                    )).toList();
+        }
     }
 
     public SessionDetailsResponse getSessionDetails(UUID userId, UUID sessionId) {
@@ -93,6 +109,29 @@ public class SessionService {
                 });
     }
 
+    @Transactional
+    public void deleteSession(UUID userId, UUID sessionId) {
+        Session session = sessionRepository.findById(sessionId).orElseThrow(() -> new DataRetrievalFailureException("Session not found"));
+        List<FileResponse> sessionFiles = Arrays.stream(Objects.requireNonNull(restTemplate
+                .getForObject(fileServiceUrl + "?sessionId=" + sessionId, FileResponse[].class))).toList();
+
+        participationRepository.findByUserAndSession(userId, session)
+                .ifPresentOrElse(p -> {
+                    if (p.getCreated()) {
+                        participationRepository.deleteABySession(session);
+                        sessionRepository.delete(session);
+                    } else {
+                        throw new IllegalStateException("User is not the creator of this session");
+                    }
+                }, () -> {
+                    throw new IllegalStateException("User is not participating in this session");
+                });
+
+        // delete session files as well
+        sessionFiles.forEach(f -> restTemplate.delete(fileServiceUrl + "/"+f.id()));
+
+    }
+
     private Boolean checkRoomAvailable(SessionRequest sessionRequest) {
         sessionRepository.findByRoomId(sessionRequest.roomId())
                 .stream()
@@ -133,20 +172,6 @@ public class SessionService {
         return true;
     }
 
-    public List<SessionResponse> getSessions(Optional<String> userId) {
-        if (userId.isPresent()) {
-            return getUserSessions(UUID.fromString(userId.get()));
-        } else {
-            return sessionRepository.findAll().stream()
-                    .map(s -> new SessionResponse(
-                            s.getId(),
-                            s.getSubject().name(),
-                            s.getTopic(),
-                            s.getStartTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
-                            s.getEndTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-                    )).toList();
-        }
-    }
 
     private List<SessionResponse> getUserSessions(UUID userId) {
         List<Participation> participations = participationRepository.findAllByUser(userId);
