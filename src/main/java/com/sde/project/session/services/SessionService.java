@@ -7,13 +7,18 @@ import com.sde.project.session.models.tables.Session;
 import com.sde.project.session.models.utils.Subject;
 import com.sde.project.session.repositories.ParticipationRepository;
 import com.sde.project.session.repositories.SessionRepository;
+import jakarta.annotation.PostConstruct;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DataRetrievalFailureException;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.File;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -23,6 +28,10 @@ public class SessionService {
     private final SessionRepository sessionRepository;
     private final ParticipationRepository participationRepository;
     private final RestTemplate restTemplate;
+    private HttpHeaders headers;
+
+    @Value("${x.auth.secret}")
+    private String xAuthSecretKey;
 
     @Value("${service.room.url}")
     private String roomServiceUrl;
@@ -35,6 +44,12 @@ public class SessionService {
         this.sessionRepository = sessionRepository;
         this.participationRepository = participationRepository;
         this.restTemplate = restTemplate;
+        this.headers = new HttpHeaders();
+    }
+
+    @PostConstruct
+    private void initializeToken() {
+        headers.add("x-auth-secret-key", xAuthSecretKey);
     }
 
     public List<SessionResponse> getSessions(Optional<String> userId, Optional<String> subject) {
@@ -51,7 +66,8 @@ public class SessionService {
         }
         return sessions.stream()
                 .map(s -> {
-                    String room = restTemplate.getForObject(roomServiceUrl + "/" + s.getRoomId(), RoomResponse.class).building();
+                    HttpEntity<?> requestEntity = new HttpEntity<>(headers);
+                    String room = restTemplate.exchange(roomServiceUrl + "/" + s.getRoomId(), HttpMethod.GET, requestEntity, RoomResponse.class).getBody().building();
                     if (userId.isPresent()) {
                         Optional<Object> createdByUser = participationRepository.findByUserAndSession(UUID.fromString(userId.get()), s)
                                 .map(Participation::getCreated);
@@ -83,11 +99,11 @@ public class SessionService {
                 .map(Participation::getCreated)
                 .orElseThrow(() -> new DataRetrievalFailureException("User not participating in this session"));
 
-        RoomDetailsResponse room = restTemplate
-                .getForObject(roomServiceUrl + "/" + session.getRoomId() + "/details", RoomDetailsResponse.class);
+        HttpEntity<?> requestEntity = new HttpEntity<>(headers);
 
-        List<FileResponse> files = Arrays.stream(Objects.requireNonNull(restTemplate
-                .getForObject(fileServiceUrl + "?sessionId=" + sessionId, FileResponse[].class))).toList();
+        RoomDetailsResponse room = restTemplate.exchange(roomServiceUrl + "/" + session.getRoomId() + "/details", HttpMethod.GET, requestEntity, RoomDetailsResponse.class).getBody();
+
+        List<FileResponse> files = Arrays.stream(Objects.requireNonNull(restTemplate.exchange(fileServiceUrl + "?sessionId=" + sessionId, HttpMethod.GET, requestEntity, FileResponse[].class).getBody())).toList();
 
         return new SessionDetailsResponse(
                 session.getId(),
@@ -106,8 +122,12 @@ public class SessionService {
         if (checkRoomAvailable(sessionRequest) && checkUserAvailable(sessionRequest) && checkRoomOpen(sessionRequest)) {
             LocalDateTime startTime = LocalDateTime.parse(sessionRequest.startTime());
             LocalDateTime endTime = LocalDateTime.parse(sessionRequest.endTime());
+            LocalDateTime now = LocalDateTime.now();
             if (startTime.isAfter(endTime)) {
                 throw new IllegalStateException("Start time is after end time");
+            }
+            if (startTime.isBefore(now)) {
+                throw new IllegalStateException("Start time is in the past");
             }
             Session session = new Session(
                     Subject.valueOf(sessionRequest.subject()),
@@ -136,8 +156,9 @@ public class SessionService {
     @Transactional
     public void deleteSession(UUID userId, UUID sessionId) {
         Session session = sessionRepository.findById(sessionId).orElseThrow(() -> new DataRetrievalFailureException("Session not found"));
-        List<FileResponse> sessionFiles = Arrays.stream(Objects.requireNonNull(restTemplate
-                .getForObject(fileServiceUrl + "?sessionId=" + sessionId, FileResponse[].class))).toList();
+
+        HttpEntity<?> requestEntity = new HttpEntity<>(headers);
+        List<FileResponse> sessionFiles = Arrays.stream(Objects.requireNonNull(restTemplate.exchange(fileServiceUrl + "?sessionId=" + sessionId, HttpMethod.GET, requestEntity, FileResponse[].class).getBody())).toList();
 
         participationRepository.findByUserAndSession(userId, session)
                 .ifPresentOrElse(p -> {
@@ -152,7 +173,7 @@ public class SessionService {
                 });
 
         // delete session files as well
-        sessionFiles.forEach(f -> restTemplate.delete(fileServiceUrl + "/" + f.id()));
+        restTemplate.exchange(fileServiceUrl + "?sessionId=" + sessionId, HttpMethod.DELETE, requestEntity, Void.class);
 
     }
 
@@ -180,7 +201,9 @@ public class SessionService {
     }
 
     private Boolean checkRoomOpen(SessionRequest sessionRequest) {
-        OpeningHoursResponse openingHoursResponse = restTemplate.getForObject(roomServiceUrl + "/" + sessionRequest.roomId() + "/opening_hours", OpeningHoursResponse.class);
+        HttpEntity<?> requestEntity = new HttpEntity<>(headers);
+        OpeningHoursResponse openingHoursResponse = restTemplate.exchange(roomServiceUrl + "/" + sessionRequest.roomId() + "/opening_hours", HttpMethod.GET, requestEntity, OpeningHoursResponse.class).getBody();
+
         LocalDateTime requestStartTime = LocalDateTime.parse(sessionRequest.startTime());
         LocalDateTime requestEndTime = LocalDateTime.parse(sessionRequest.endTime());
 
