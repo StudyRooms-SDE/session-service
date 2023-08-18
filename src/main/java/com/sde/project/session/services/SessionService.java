@@ -28,7 +28,7 @@ public class SessionService {
     private final SessionRepository sessionRepository;
     private final ParticipationRepository participationRepository;
     private final RestTemplate restTemplate;
-    private HttpHeaders headers;
+    private final HttpHeaders headers;
 
     @Value("${x.auth.secret}")
     private String xAuthSecretKey;
@@ -78,7 +78,7 @@ public class SessionService {
                                 s.getTopic(),
                                 s.getStartTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
                                 s.getEndTime().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
-                                createdByUser.isPresent());
+                                createdByUser.map(o -> (Boolean) o).orElse(false));
                     }
                     return new SessionResponse(
                             s.getId(),
